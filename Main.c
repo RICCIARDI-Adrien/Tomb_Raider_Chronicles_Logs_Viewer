@@ -24,7 +24,11 @@ static LRESULT CALLBACK WindowProcedure(HWND Handle, UINT Message_ID, WPARAM Fir
 	
 	// Handle only useful messages
 	switch (Message_ID) 
-    { 
+    {
+		case WM_DESTROY:
+			exit(EXIT_SUCCESS);
+			break; // To make the compiler happy
+		
 		default:
 			return DefWindowProc(Handle, Message_ID, First_Parameter, Second_Parameter); 
 	}
@@ -39,6 +43,7 @@ static LRESULT CALLBACK WindowProcedure(HWND Handle, UINT Message_ID, WPARAM Fir
 static int CreateApplicationWindow(HINSTANCE Handle_Application_Instance)
 {
 	WNDCLASS Window_Class;
+	HANDLE Handle_Window;
 	
 	// Create a window class with the specific names searched by Tomb Raider executable
 	Window_Class.style = 0;
@@ -48,7 +53,7 @@ static int CreateApplicationWindow(HINSTANCE Handle_Application_Instance)
 	Window_Class.hInstance = Handle_Application_Instance;
 	Window_Class.hIcon = NULL;
 	Window_Class.hCursor = NULL;
-	Window_Class.hbrBackground = NULL;
+	Window_Class.hbrBackground = (HBRUSH) COLOR_BACKGROUND;
 	Window_Class.lpszMenuName = NULL;
 	Window_Class.lpszClassName = STRING_WINDOW_CLASS;
 	if (RegisterClass(&Window_Class) == 0)
@@ -58,11 +63,15 @@ static int CreateApplicationWindow(HINSTANCE Handle_Application_Instance)
 	}
 	
 	// Create the window itself with a specific caption, as it is also searched by the Tomb Raider executable
-	if (CreateWindow(STRING_WINDOW_CLASS, "DBLog Server", WS_BORDER | WS_CAPTION, 0, 0, 100, 100, NULL, NULL, Handle_Application_Instance, NULL) == NULL)
+	Handle_Window = CreateWindow(STRING_WINDOW_CLASS, "DBLog Server", WS_BORDER | WS_CAPTION | WS_SYSMENU, 0, 0, 200, 100, NULL, NULL, Handle_Application_Instance, NULL);
+	if (Handle_Window == NULL)
 	{
 		printf("Error : failed to create the window (%s).\n", strerror(errno));
 		return -1;
 	}
+	
+	ShowWindow(Handle_Window, SW_SHOW);
+
 	
 	return 0;
 }	
@@ -70,9 +79,46 @@ static int CreateApplicationWindow(HINSTANCE Handle_Application_Instance)
 //-------------------------------------------------------------------------------------------------
 // Entry point
 //-------------------------------------------------------------------------------------------------
-int APIENTRY WinMain(HINSTANCE Handle_Application_Instance, HINSTANCE Handle_Application_Previous_Instance, LPSTR String_Command_Line, int Window_Show_Mode)
+int APIENTRY WinMain(HINSTANCE Handle_Application_Instance, HINSTANCE __attribute__((unused)) Handle_Application_Previous_Instance, LPSTR __attribute__((unused)) String_Command_Line, int __attribute__((unused)) Window_Show_Mode)
 {
+	HANDLE Handle_Binary_File, Handle_Memory_Mapping;
+	int Return_Value;
+	MSG Message;
+	
+	// Create the file that will be memory-mapped and where Tomb Raider executable will write logs
+	Handle_Binary_File = CreateFile("Log.bin", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, CREATE_ALWAYS, 0, NULL);
+	if (Handle_Binary_File == INVALID_HANDLE_VALUE)
+	{
+		printf("Error : failed to create the binary log file (%s).\n", strerror(errno));
+		return EXIT_FAILURE;
+	}
+	
+	// Memory-map the file, so Tomb Raider executable can access it
+	Handle_Memory_Mapping = CreateFileMapping(Handle_Binary_File, NULL, PAGE_READWRITE, 0, 2 * 1024 * 1024, "DBLOGMAPMEM");
+	if (Handle_Memory_Mapping == NULL)
+	{
+		printf("Error : failed to create the binary log file memory mapping (%s).\n", strerror(errno));
+		return EXIT_FAILURE;
+	}
+	
+	// Create the application window Tomb Raider executable will search for (create it now that everything is ready to answer window messages)
 	if (CreateApplicationWindow(Handle_Application_Instance) != 0) return EXIT_FAILURE;
-	while (1);
+
+	// Process messages
+	while (1)
+	{
+		// Get next available message
+		Return_Value = GetMessage(&Message, NULL, 0, 0);
+		if (Return_Value == -1)
+		{
+			printf("Error : could not get the next message (%s).\n", strerror(errno));
+			return EXIT_FAILURE;
+		}
+		if (Return_Value == 0) break;
+		
+		TranslateMessage(&Message); 
+        DispatchMessage(&Message); 
+	}
+	
 	return EXIT_SUCCESS;
 }
