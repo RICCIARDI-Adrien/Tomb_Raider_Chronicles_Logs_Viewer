@@ -15,12 +15,44 @@
 #define STRING_WINDOW_CLASS "DBLogWindowClass"
 
 //-------------------------------------------------------------------------------------------------
+// Private variables
+//-------------------------------------------------------------------------------------------------
+/** This file is memory mapped, it is where the Tomb Raider executable writes. */
+HANDLE Handle_Binary_File;
+/** The memory-map shared between this program and Tomb Raider executable. */
+HANDLE Handle_Memory_Mapping;
+
+/** Write the received logs to this file. */
+static FILE *Pointer_Output_File;
+
+//-------------------------------------------------------------------------------------------------
 // Private functions
 //-------------------------------------------------------------------------------------------------
+static char *ReadLogLine(void)
+{
+	static char Buffer[2048]; // Should be enough for a single message
+	FILE *Pointer_File;
+	
+	// Open the file everytime to start from the begining TODO : rewind
+	Pointer_File = fopen("Log.bin", "rb");
+	if (Pointer_File == NULL)
+	{
+		printf("Error : failed to read log data (%s).\n", strerror(errno));
+		Buffer[0] = 0;
+	}
+	else
+	{
+		fread(Buffer, 1, sizeof(Buffer), Pointer_File);
+		fclose(Pointer_File);
+	}
+	
+	return Buffer;
+}
+
 /** The standard callback called when the window receives a message. */
 static LRESULT CALLBACK WindowProcedure(HWND Handle, UINT Message_ID, WPARAM First_Parameter, LPARAM Second_Parameter)
 {
-	printf("ciao\n");
+	if (Message_ID > 0xC00) printf("MGS : %X\n", Message_ID);
 	
 	// Handle only useful messages
 	switch (Message_ID) 
@@ -28,6 +60,18 @@ static LRESULT CALLBACK WindowProcedure(HWND Handle, UINT Message_ID, WPARAM Fir
 		case WM_DESTROY:
 			exit(EXIT_SUCCESS);
 			break; // To make the compiler happy
+			
+		case 0xC226:
+			//printf("\033[32m[DEBUG ?]\033[0m %s\n", ReadLogLine());
+			break;
+		
+		case 0xC227:
+			printf("C227\n");
+			break;
+			
+		case 0xC228:
+			printf("\033[33m[INFO ?]\033[0m %s\n", ReadLogLine());
+			break;
 		
 		default:
 			return DefWindowProc(Handle, Message_ID, First_Parameter, Second_Parameter); 
@@ -70,18 +114,27 @@ static int CreateApplicationWindow(HINSTANCE Handle_Application_Instance)
 		return -1;
 	}
 	
+	// Make the window visible
 	ShowWindow(Handle_Window, SW_SHOW);
-
 	
 	return 0;
-}	
+}
+
+/** Gracefully close meaning resources on program exit. */
+static void Exit(void)
+{
+	CloseHandle(Handle_Memory_Mapping);
+	CloseHandle(Handle_Binary_File);
+	fclose(Pointer_Output_File);
+	
+	printf("Program successfully exited.\n");
+}
 
 //-------------------------------------------------------------------------------------------------
 // Entry point
 //-------------------------------------------------------------------------------------------------
 int APIENTRY WinMain(HINSTANCE Handle_Application_Instance, HINSTANCE __attribute__((unused)) Handle_Application_Previous_Instance, LPSTR __attribute__((unused)) String_Command_Line, int __attribute__((unused)) Window_Show_Mode)
 {
-	HANDLE Handle_Binary_File, Handle_Memory_Mapping;
 	int Return_Value;
 	MSG Message;
 	
@@ -101,6 +154,17 @@ int APIENTRY WinMain(HINSTANCE Handle_Application_Instance, HINSTANCE __attribut
 		return EXIT_FAILURE;
 	}
 	
+	// Try to open the file that will contain all received logs in an human-readable way
+	Pointer_Output_File = fopen("Log.txt", "w");
+	if (Pointer_Output_File == NULL)
+	{
+		printf("Error : could not open the output file (%s).\n", strerror(errno));
+		return EXIT_FAILURE;
+	}
+	
+	// Make sure everything if well closed when quitting program
+	atexit(Exit);
+	
 	// Create the application window Tomb Raider executable will search for (create it now that everything is ready to answer window messages)
 	if (CreateApplicationWindow(Handle_Application_Instance) != 0) return EXIT_FAILURE;
 
@@ -116,8 +180,9 @@ int APIENTRY WinMain(HINSTANCE Handle_Application_Instance, HINSTANCE __attribut
 		}
 		if (Return_Value == 0) break;
 		
+		// Process the message
 		TranslateMessage(&Message); 
-        DispatchMessage(&Message); 
+		DispatchMessage(&Message); 
 	}
 	
 	return EXIT_SUCCESS;
