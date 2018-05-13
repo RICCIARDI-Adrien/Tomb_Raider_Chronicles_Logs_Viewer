@@ -25,6 +25,15 @@ HANDLE Handle_Memory_Mapping;
 /** Write the received logs to this file. */
 static FILE *Pointer_Output_File;
 
+/** Contain the UM_DBLOGOUT message dynamic identifier. */
+static UINT Window_Message_ID_UM_DBLOGOUT;
+/** Contain the UM_DBCLEARLOG message dynamic identifier. */
+static UINT Window_Message_ID_UM_DBCLEARLOG;
+/** Contain the UM_DBDEFTYPE message dynamic identifier. */
+static UINT Window_Message_ID_UM_DBDEFTYPE;
+/** Contain the UM_DBCOMMAND message dynamic identifier. */
+static UINT Window_Message_ID_UM_DBCOMMAND;
+
 //-------------------------------------------------------------------------------------------------
 // Private functions
 //-------------------------------------------------------------------------------------------------
@@ -54,28 +63,29 @@ static LRESULT CALLBACK WindowProcedure(HWND Handle, UINT Message_ID, WPARAM Fir
 {
 	if (Message_ID > 0xC00) printf("MGS : %X\n", Message_ID);
 	
-	// Handle only useful messages
-	switch (Message_ID) 
-    {
-		case WM_DESTROY:
-			exit(EXIT_SUCCESS);
-			break; // To make the compiler happy
-			
-		case 0xC226:
-			//printf("\033[32m[DEBUG ?]\033[0m %s\n", ReadLogLine());
-			break;
-		
-		case 0xC227:
-			printf("C227\n");
-			break;
-			
-		case 0xC228:
-			printf("\033[33m[INFO ?]\033[0m %s\n", ReadLogLine());
-			break;
-		
-		default:
-			return DefWindowProc(Handle, Message_ID, First_Parameter, Second_Parameter); 
+	// Handle only useful messages (a switch can't be used because some message IDs are dynamic)
+	if (Message_ID == WM_DESTROY) exit(EXIT_SUCCESS);
+	// Core Design "UM_DBLOGOUT" message
+	else if (Message_ID == Window_Message_ID_UM_DBLOGOUT)
+	{
+		printf("UM_DBLOGOUT\n");
 	}
+	// Core Design "UM_DBCLEARLOG" message
+	else if (Message_ID == Window_Message_ID_UM_DBCLEARLOG)
+	{
+		printf("UM_DBCLEARLOG\n");
+	}
+	// Core Design "UM_DBDEFTYPE" message
+	else if (Message_ID == Window_Message_ID_UM_DBDEFTYPE)
+	{
+		printf("DBDEFTYPE\n");
+	}
+	// Core Design "UM_DBCOMMAND" message
+	else if (Message_ID == Window_Message_ID_UM_DBCOMMAND)
+	{
+		printf("UM_DBCOMMAND\n");
+	}
+	else return DefWindowProc(Handle, Message_ID, First_Parameter, Second_Parameter);
 	
 	return 0;
 }
@@ -116,6 +126,47 @@ static int CreateApplicationWindow(HINSTANCE Handle_Application_Instance)
 	
 	// Make the window visible
 	ShowWindow(Handle_Window, SW_SHOW);
+	
+	return 0;
+}
+
+/** Get and identifier for all user messages used by Tomb Raider logging system.
+ * @return -1 if an error occurred,
+ * @return 0 on success.
+ */
+static int RegisterWindowUserMessages(void)
+{
+	// UM_DBLOGOUT message
+	Window_Message_ID_UM_DBLOGOUT = RegisterWindowMessage("UM_DBLOGOUT");
+	if (Window_Message_ID_UM_DBLOGOUT == 0)
+	{
+		printf("Error : failed to register UM_DBLOGOUT message (%s).\n", strerror(errno));
+		return -1;
+	}
+	
+	// UM_DBCLEARLOG message
+	Window_Message_ID_UM_DBCLEARLOG = RegisterWindowMessage("UM_DBCLEARLOG");
+	if (Window_Message_ID_UM_DBCLEARLOG == 0)
+	{
+		printf("Error : failed to register UM_DBCLEARLOG message (%s).\n", strerror(errno));
+		return -1;
+	}
+	
+	// UM_DBDEFTYPE message
+	Window_Message_ID_UM_DBDEFTYPE = RegisterWindowMessage("UM_DBDEFTYPE");
+	if (Window_Message_ID_UM_DBDEFTYPE == 0)
+	{
+		printf("Error : failed to register UM_DBDEFTYPE message (%s).\n", strerror(errno));
+		return -1;
+	}
+	
+	// UM_DBCOMMAND message
+	Window_Message_ID_UM_DBCOMMAND = RegisterWindowMessage("UM_DBCOMMAND");
+	if (Window_Message_ID_UM_DBCOMMAND == 0)
+	{
+		printf("Error : failed to register UM_DBCOMMAND message (%s).\n", strerror(errno));
+		return -1;
+	}
 	
 	return 0;
 }
@@ -161,6 +212,9 @@ int APIENTRY WinMain(HINSTANCE Handle_Application_Instance, HINSTANCE __attribut
 		printf("Error : could not open the output file (%s).\n", strerror(errno));
 		return EXIT_FAILURE;
 	}
+	
+	// Register all user application messages, so they match Tomb Raider executable ones
+	if (RegisterWindowUserMessages() != 0) return EXIT_FAILURE;
 	
 	// Make sure everything if well closed when quitting program
 	atexit(Exit);
