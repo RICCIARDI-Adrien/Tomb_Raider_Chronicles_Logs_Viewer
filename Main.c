@@ -37,12 +37,16 @@ static UINT Window_Message_ID_UM_DBCOMMAND;
 //-------------------------------------------------------------------------------------------------
 // Private functions
 //-------------------------------------------------------------------------------------------------
-static char *ReadLogLine(void)
+/** Read the memory-shared log file to fetch latest data.
+ * @param Offset An optional offset to read the file from (set to 0 to have no offset).
+ * @return A zero-terminated string corresponding to the read log.
+ */
+static char *ReadLog(long Offset)
 {
 	static char Buffer[2048]; // Should be enough for a single message
 	FILE *Pointer_File;
 	
-	// Open the file everytime to start from the begining TODO : rewind
+	// Open the file everytime to start from the begining
 	Pointer_File = fopen("Log.bin", "rb");
 	if (Pointer_File == NULL)
 	{
@@ -51,6 +55,9 @@ static char *ReadLogLine(void)
 	}
 	else
 	{
+		// Go to a specific offset if needed
+		if (Offset > 0) fseek(Pointer_File, Offset, SEEK_SET);
+		
 		fread(Buffer, 1, sizeof(Buffer), Pointer_File);
 		fclose(Pointer_File);
 	}
@@ -61,14 +68,14 @@ static char *ReadLogLine(void)
 /** The standard callback called when the window receives a message. */
 static LRESULT CALLBACK WindowProcedure(HWND Handle, UINT Message_ID, WPARAM First_Parameter, LPARAM Second_Parameter)
 {
-	if (Message_ID > 0xC00) printf("MGS : %X\n", Message_ID);
+	//if (Message_ID > 0xC00) printf("MGS : %X\n", Message_ID);
 	
 	// Handle only useful messages (a switch can't be used because some message IDs are dynamic)
 	if (Message_ID == WM_DESTROY) exit(EXIT_SUCCESS);
 	// Core Design "UM_DBLOGOUT" message
 	else if (Message_ID == Window_Message_ID_UM_DBLOGOUT)
 	{
-		printf("UM_DBLOGOUT\n");
+		printf("\033[32m[LOG]\033[0m %s\n", ReadLog((long) Second_Parameter));
 	}
 	// Core Design "UM_DBCLEARLOG" message
 	else if (Message_ID == Window_Message_ID_UM_DBCLEARLOG)
@@ -78,7 +85,8 @@ static LRESULT CALLBACK WindowProcedure(HWND Handle, UINT Message_ID, WPARAM Fir
 	// Core Design "UM_DBDEFTYPE" message
 	else if (Message_ID == Window_Message_ID_UM_DBDEFTYPE)
 	{
-		printf("DBDEFTYPE\n");
+		//printf("DBDEFTYPE w=%llu l=%lld %s\n", First_Parameter, Second_Parameter, ReadLog(0));
+		printf("\033[33m[DEFTYPE]\033[0m w=%llu l=%lld %s\n", First_Parameter, Second_Parameter, ReadLog(0));
 	}
 	// Core Design "UM_DBCOMMAND" message
 	else if (Message_ID == Window_Message_ID_UM_DBCOMMAND)
