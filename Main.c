@@ -14,6 +14,21 @@
 /** Tomb Raider executable searches for this window class when trying to send logs to logging program. */
 #define STRING_WINDOW_CLASS "DBLogWindowClass"
 
+/** How big can be a message log string in bytes. */
+#define LOG_MAXIMUM_MESSAGE_SIZE 2048
+/** How many log types are sent by the game. */
+#define LOG_TYPES_COUNT 9
+
+//-------------------------------------------------------------------------------------------------
+// Private types
+//-------------------------------------------------------------------------------------------------
+/** All log types are sent by the Tomb Raider executable on startup. */
+typedef struct
+{
+	char String_Name[128]; //!< The log type name as sent on game startup.
+	int Displaying_Color; //!< The color code to use when displaying this log.
+} TLogType;
+
 //-------------------------------------------------------------------------------------------------
 // Private variables
 //-------------------------------------------------------------------------------------------------
@@ -34,40 +49,125 @@ static UINT Window_Message_ID_UM_DBDEFTYPE;
 /** Contain the UM_DBCOMMAND message dynamic identifier. */
 static UINT Window_Message_ID_UM_DBCOMMAND;
 
+/** Store all log types sent by the game. The amount of logs is fixed. */
+static TLogType Log_Types[LOG_TYPES_COUNT] =
+{
+	{
+		"NO TYPE",
+		41
+	},
+	{
+		"",
+		31
+	},
+	{
+		"",
+		32
+	},
+	{
+		"",
+		33
+	},
+	{
+		"",
+		34
+	},
+	{
+		"",
+		35
+	},
+	{
+		"",
+		36
+	},
+	{
+		"",
+		40
+	},
+	{
+		"",
+		44
+	}
+};
+/** How many log types have been set so far. */
+static int Defined_Log_Types_Count = 1; // Log type '0' is existing even if it is not set by a "DBDEFTYPE" command
+
 //-------------------------------------------------------------------------------------------------
 // Private functions
 //-------------------------------------------------------------------------------------------------
-/** Read the memory-shared log file to fetch latest data.
- * @param Offset An optional offset to read the file from (set to 0 to have no offset).
- * @return A zero-terminated string corresponding to the read log.
+/** Read the memory-shared log file to fetch latest log type.
+ * @param Pointer_String_Type_Name On output, contain a zero-terminated string corresponding to the log type name.
+ * @return -1 if an error occurred,
+ * @return 0 on success.
  */
-static char *ReadLog(long Offset)
+static int ReadLogType(char *Pointer_String_Type_Name)
 {
-	static char Buffer[2048]; // Should be enough for a single message
 	FILE *Pointer_File;
 	
 	// Open the file everytime to start from the begining
 	Pointer_File = fopen("Log.bin", "rb");
 	if (Pointer_File == NULL)
 	{
-		printf("Error : failed to read log data (%s).\n", strerror(errno));
-		Buffer[0] = 0;
+		printf("Error : failed to open log file to read last log type (%s).\n", strerror(errno));
+		return -1;
+	}
+	else
+	{
+		// Read the log type name
+		fread(Pointer_String_Type_Name, 1, LOG_MAXIMUM_MESSAGE_SIZE, Pointer_File);
+		fclose(Pointer_File);
+	}
+	
+	return 0;
+}
+
+/** Read the memory-shared log file to fetch latest log message.
+ * @param Offset An optional offset to read the file from (set to 0 to have no offset).
+ * @param Pointer_Log_Type On output, contain the log type number (a type is set by DBDEFTYPE message).
+ * @param Pointer_String_Message On output, contain a zero-terminated string corresponding to the log message.
+ * @return -1 if an error occurred,
+ * @return 0 on success.
+ */
+static int ReadLogMessage(long Offset, int *Pointer_Log_Type, char *Pointer_String_Message)
+{
+	FILE *Pointer_File;
+	unsigned char Byte;
+	
+	// Open the file everytime to start from the begining
+	Pointer_File = fopen("Log.bin", "rb");
+	if (Pointer_File == NULL)
+	{
+		printf("Error : failed to open log file to read last log (%s).\n", strerror(errno));
+		return -1;
 	}
 	else
 	{
 		// Go to a specific offset if needed
 		if (Offset > 0) fseek(Pointer_File, Offset, SEEK_SET);
 		
-		fread(Buffer, 1, sizeof(Buffer), Pointer_File);
+		// Read the log type
+		if (fread(&Byte, 1, 1, Pointer_File) != 1)
+		{
+			printf("Error : failed to read log type from log file (%s).\n", strerror(errno));
+			return -1;
+		}
+		*Pointer_Log_Type = Byte;
+		
+		// Read the log message
+		fread(Pointer_String_Message, 1, LOG_MAXIMUM_MESSAGE_SIZE, Pointer_File);
+		
 		fclose(Pointer_File);
 	}
 	
-	return Buffer;
+	return 0;
 }
 
 /** The standard callback called when the window receives a message. */
 static LRESULT CALLBACK WindowProcedure(HWND Handle, UINT Message_ID, WPARAM First_Parameter, LPARAM Second_Parameter)
 {
+	char String_Message[LOG_MAXIMUM_MESSAGE_SIZE];
+	int Log_Type;
+	
 	//if (Message_ID > 0xC00) printf("MGS : %X\n", Message_ID);
 	
 	// Handle only useful messages (a switch can't be used because some message IDs are dynamic)
@@ -75,7 +175,17 @@ static LRESULT CALLBACK WindowProcedure(HWND Handle, UINT Message_ID, WPARAM Fir
 	// Core Design "UM_DBLOGOUT" message
 	else if (Message_ID == Window_Message_ID_UM_DBLOGOUT)
 	{
-		printf("\033[32m[LOG]\033[0m %s\n", ReadLog((long) Second_Parameter));
+		// Retrieve log message
+		ReadLogMessage((long) Second_Parameter, &Log_Type, String_Message);
+		
+		if ((Log_Type < 0) || (Log_Type >= LOG_TYPES_COUNT))
+		{
+			printf("Error : the log type number (%d) is not in the allowed range.\n", Log_Type + 1);
+			return 0;
+		}
+		
+		// Display log with right color
+		printf("\033[%dm[%s]\033[0m %s\n", Log_Types[Log_Type].Displaying_Color, Log_Types[Log_Type].String_Name, String_Message);
 	}
 	// Core Design "UM_DBCLEARLOG" message
 	else if (Message_ID == Window_Message_ID_UM_DBCLEARLOG)
@@ -85,8 +195,20 @@ static LRESULT CALLBACK WindowProcedure(HWND Handle, UINT Message_ID, WPARAM Fir
 	// Core Design "UM_DBDEFTYPE" message
 	else if (Message_ID == Window_Message_ID_UM_DBDEFTYPE)
 	{
-		//printf("DBDEFTYPE w=%llu l=%lld %s\n", First_Parameter, Second_Parameter, ReadLog(0));
-		printf("\033[33m[DEFTYPE]\033[0m w=%llu l=%lld %s\n", First_Parameter, Second_Parameter, ReadLog(0));
+		// Get type name
+		ReadLogType(String_Message); // Recycle String_Message variable
+		printf("\033[45m[DEFTYPE]\033[0m type ID : %d, type name : '%s'\n", Defined_Log_Types_Count, String_Message);
+		
+		// Make sure there is enough room in the log types array
+		if (Defined_Log_Types_Count >= LOG_TYPES_COUNT)
+		{
+			printf("Error : log types array is too small, consider increasing its size.\n");
+			return 0;
+		}
+		
+		// Store type name
+		strncpy(Log_Types[Defined_Log_Types_Count].String_Name, String_Message, sizeof(Log_Types[0].String_Name));
+		Defined_Log_Types_Count++;
 	}
 	// Core Design "UM_DBCOMMAND" message
 	else if (Message_ID == Window_Message_ID_UM_DBCOMMAND)
